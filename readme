@@ -1,0 +1,42 @@
+# Match & Merge ELT – SQL Server 2022 (v2)
+
+## Architecture
+- **ctl** : orchestration, audit, métriques, erreurs
+- **stg** : staging par run_id + graph intra-run
+- **dq**  : scoring, candidats, stewardship
+- **mdm** : référentiels SCD2 (SPE, PE, relations)
+
+## Ordre d’exécution
+1. ctl.sp_mm_run
+2. Stage declarations SPE / PE
+3. Match PE pseudoSIRET
+4. Match SPE déterministe
+5. Match SPE probabiliste (référentiel)
+6. Déduplication intra-run SPE :
+   - graphe
+   - composantes connexes
+   - déterministe intra-run
+   - probabiliste intra-run (reproductible)
+7. Merge SCD2 SPE / PE
+8. Merge relations
+9. Stewardship (asynchrone)
+
+## Paramètres
+- @threshold float (default 0.8)
+- @max_iter int (default 1000)
+- @status_created = 'Created'
+
+## Stewardship
+- Lire dq.spe_match_candidates*
+- Décider dans dq.spe_stewardship_decision
+- Appliquer via dq.sp_apply_stewardship_decisions
+
+## Performances
+- Blocage proba (année + 2 premières lettres)
+- Colonnes calculées persistées
+- Set-based, pas de curseur
+- Transactions courtes par étape
+
+## Limites connues
+- Levenshtein en T-SQL : coûteux CPU
+- Option future : CLR (non implémentée)
