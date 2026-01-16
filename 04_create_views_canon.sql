@@ -1,82 +1,79 @@
 SET NOCOUNT ON;
+SET XACT_ABORT ON;
 GO
 
-PRINT 'Creating adapter views (canon)...';
-GO
+-- Adapter views: TODO map columns from Silver tables.
 
--- TODO: Adapter layer - map les colonnes réelles des tables Silver vers les noms canoniques attendus.
-IF OBJECT_ID('silver.v_decl_spe_canon') IS NOT NULL DROP VIEW silver.v_decl_spe_canon;
-GO
-CREATE VIEW silver.v_decl_spe_canon
-AS
+CREATE OR ALTER VIEW silver.v_decl_spe_canon AS
 SELECT
-    d.id_ligne_declaration,
-    d.spe_nom,
-    d.spe_nom_normalized,
-    d.spe_prenom,
-    d.spe_prenom_normalized,
-    d.spe_dateNaissance,
-    d.spe_communeNaissance,
-    d.created_at,
-    d.valid_to
-FROM silver.Silver_decl_spe d;
+    CAST(NULL AS bigint) AS id_ligne_declaration, -- TODO map
+    CAST(NULL AS nvarchar(200)) AS spe_nom_normalized, -- TODO map
+    CAST(NULL AS nvarchar(200)) AS spe_prenom_normalized, -- TODO map
+    CAST(NULL AS date) AS spe_dateNaissance, -- TODO map
+    CAST(NULL AS nvarchar(200)) AS spe_communeNaissance, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS spe_pseudoSiret, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS employment_type, -- TODO map
+    CAST(NULL AS date) AS date_debut_prestation, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS source_system, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS source, -- TODO map
+    CAST(NULL AS bit) AS rnvp_score, -- TODO map
+    CAST(NULL AS datetime2(3)) AS created_at, -- TODO map
+    CAST(NULL AS datetime2(3)) AS valid_to -- TODO map
+WHERE 1 = 0;
 GO
 
-IF OBJECT_ID('silver.v_decl_pe_canon') IS NOT NULL DROP VIEW silver.v_decl_pe_canon;
-GO
-CREATE VIEW silver.v_decl_pe_canon
-AS
+CREATE OR ALTER VIEW silver.v_decl_pe_canon AS
 SELECT
-    p.id_ligne_declaration,
-    p.pseudo_siret,
-    p.created_at,
-    p.valid_to
-FROM silver.Silver_decl_pe p;
+    CAST(NULL AS bigint) AS id_ligne_declaration, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS pe_pseudoSiret, -- TODO map
+    CAST(NULL AS nvarchar(200)) AS pe_nom_normalized, -- TODO map
+    CAST(NULL AS nvarchar(200)) AS pe_commune, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS source_system, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS source, -- TODO map
+    CAST(NULL AS bit) AS rnvp_score, -- TODO map
+    CAST(NULL AS datetime2(3)) AS created_at, -- TODO map
+    CAST(NULL AS datetime2(3)) AS valid_to -- TODO map
+WHERE 1 = 0;
 GO
 
-IF OBJECT_ID('silver.v_spe_enriched_canon') IS NOT NULL DROP VIEW silver.v_spe_enriched_canon;
-GO
-CREATE VIEW silver.v_spe_enriched_canon
-AS
+CREATE OR ALTER VIEW silver.v_spe_enriched_canon AS
 SELECT
-    e.spe_masterid,
-    e.spe_nom_normalized,
-    e.spe_prenom_normalized,
-    e.spe_dateNaissance,
-    e.spe_communeNaissance,
-    e.rnvp_ok,
-    e.created_at,
-    e.valid_to,
-    e.blocking_year,
-    e.blocking_nom2,
-    e.blocking_pre2
-FROM silver.Silver_spe_enriched e;
+    CAST(NULL AS bigint) AS spe_masterid, -- TODO map
+    CAST(NULL AS nvarchar(200)) AS spe_nom_normalized, -- TODO map
+    CAST(NULL AS nvarchar(200)) AS spe_prenom_normalized, -- TODO map
+    CAST(NULL AS date) AS spe_dateNaissance, -- TODO map
+    CAST(NULL AS nvarchar(200)) AS spe_communeNaissance, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS source_system, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS source, -- TODO map
+    CAST(NULL AS bit) AS rnvp_score, -- TODO map
+    CAST(NULL AS datetime2(3)) AS created_at -- TODO map
+WHERE 1 = 0;
 GO
 
-IF OBJECT_ID('silver.v_pe_enriched_canon') IS NOT NULL DROP VIEW silver.v_pe_enriched_canon;
-GO
-CREATE VIEW silver.v_pe_enriched_canon
-AS
+CREATE OR ALTER VIEW silver.v_pe_enriched_canon AS
 SELECT
-    e.pe_masterid,
-    e.pseudo_siret,
-    e.rnvp_ok,
-    e.created_at,
-    e.valid_to
-FROM silver.Silver_pe_enriched e;
+    CAST(NULL AS bigint) AS pe_masterid, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS pe_pseudoSiret, -- TODO map
+    CAST(NULL AS nvarchar(200)) AS pe_nom_normalized, -- TODO map
+    CAST(NULL AS nvarchar(200)) AS pe_commune, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS source_system, -- TODO map
+    CAST(NULL AS nvarchar(50)) AS source, -- TODO map
+    CAST(NULL AS bit) AS rnvp_score, -- TODO map
+    CAST(NULL AS datetime2(3)) AS created_at -- TODO map
+WHERE 1 = 0;
 GO
 
-IF OBJECT_ID('silver.v_mapping_canon') IS NOT NULL DROP VIEW silver.v_mapping_canon;
-GO
-CREATE VIEW silver.v_mapping_canon
-AS
+CREATE OR ALTER VIEW silver.v_mapping_canon AS
 SELECT
-    m.id_ligne_declaration,
-    m.spe_masterid,
-    m.pe_masterid,
-    m.spe_match_status,
-    m.pe_match_status,
-    m.created_at,
-    m.valid_to
-FROM silver.Silver_declaration_ref_mapping m;
+    id_ligne_declaration,
+    spe_masterid,
+    pe_masterid,
+    spe_match_status,
+    pe_match_status,
+    best_candidate_masterid,
+    best_candidate_score,
+    run_id,
+    created_at,
+    updated_at
+FROM mdm.declaration_ref_mapping;
 GO
