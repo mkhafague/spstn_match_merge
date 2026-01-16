@@ -1,369 +1,313 @@
 SET NOCOUNT ON;
-GO
+SET XACT_ABORT ON;
 
-PRINT 'Creating control tables...';
-GO
-IF OBJECT_ID('ctl.process_run') IS NULL
+-- ctl
+IF OBJECT_ID('ctl.process_run','U') IS NULL
 BEGIN
-    CREATE TABLE ctl.process_run
-    (
-        run_id        UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
-        process_name  SYSNAME          NOT NULL,
-        start_ts      DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
-        end_ts        DATETIME2(3)     NULL,
-        status        VARCHAR(20)      NULL,
-        error_message NVARCHAR(4000)   NULL,
-        host_name     NVARCHAR(255)    NULL,
-        executed_by   NVARCHAR(255)    NULL
+    CREATE TABLE ctl.process_run (
+        run_id uniqueidentifier NOT NULL PRIMARY KEY,
+        process_name sysname NOT NULL,
+        start_ts datetime2(3) NOT NULL,
+        end_ts datetime2(3) NULL,
+        status varchar(20) NOT NULL,
+        error_message nvarchar(4000) NULL,
+        host_name sysname NULL,
+        executed_by sysname NULL
     );
 END;
-GO
 
-IF OBJECT_ID('ctl.process_metrics') IS NULL
+IF OBJECT_ID('ctl.process_metrics','U') IS NULL
 BEGIN
-    CREATE TABLE ctl.process_metrics
-    (
-        run_id      UNIQUEIDENTIFIER NOT NULL,
-        step_name   NVARCHAR(200)    NOT NULL,
-        row_count   BIGINT           NULL,
-        duration_ms BIGINT           NULL,
-        comment     NVARCHAR(4000)   NULL,
-        created_at  DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
-        PRIMARY KEY (run_id, step_name, created_at)
+    CREATE TABLE ctl.process_metrics (
+        run_id uniqueidentifier NOT NULL,
+        step_name sysname NOT NULL,
+        row_count bigint NULL,
+        duration_ms bigint NULL,
+        comment nvarchar(1000) NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_process_metrics_created_at DEFAULT SYSUTCDATETIME()
     );
 END;
-GO
 
-IF OBJECT_ID('ctl.process_error') IS NULL
+IF OBJECT_ID('ctl.process_error','U') IS NULL
 BEGIN
-    CREATE TABLE ctl.process_error
-    (
-        run_id         UNIQUEIDENTIFIER NOT NULL,
-        step_name      NVARCHAR(200)    NOT NULL,
-        error_number   INT              NULL,
-        error_message  NVARCHAR(4000)   NULL,
-        error_line     INT              NULL,
-        error_procedure NVARCHAR(200)   NULL,
-        error_ts       DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME()
+    CREATE TABLE ctl.process_error (
+        run_id uniqueidentifier NULL,
+        step_name sysname NULL,
+        error_number int NULL,
+        error_message nvarchar(4000) NULL,
+        error_line int NULL,
+        error_procedure sysname NULL,
+        error_ts datetime2(3) NOT NULL CONSTRAINT DF_process_error_error_ts DEFAULT SYSUTCDATETIME()
     );
 END;
-GO
 
-IF OBJECT_ID('ctl.merge_log') IS NULL
+IF OBJECT_ID('ctl.merge_log','U') IS NULL
 BEGIN
-    CREATE TABLE ctl.merge_log
-    (
-        label            SYSNAME      NOT NULL PRIMARY KEY,
-        last_success_ts  DATETIME2(3) NULL
+    CREATE TABLE ctl.merge_log (
+        label sysname NOT NULL PRIMARY KEY,
+        last_success_ts datetime2(3) NULL
     );
 END;
-GO
 
-PRINT 'Creating staging tables...';
-GO
-
-IF OBJECT_ID('stg.stg_new_decl_spe') IS NULL
+-- stg
+IF OBJECT_ID('stg.stg_new_decl_spe','U') IS NULL
 BEGIN
-    CREATE TABLE stg.stg_new_decl_spe
-    (
-        run_id                     UNIQUEIDENTIFIER NOT NULL,
-        id_ligne_declaration       BIGINT           NOT NULL,
-        spe_nom                    NVARCHAR(255)    NULL,
-        spe_nom_normalized         NVARCHAR(255)    NULL,
-        spe_prenom                 NVARCHAR(255)    NULL,
-        spe_prenom_normalized      NVARCHAR(255)    NULL,
-        spe_dateNaissance          DATE             NULL,
-        spe_communeNaissance       NVARCHAR(255)    NULL,
-        created_at                 DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
-        blocking_year AS YEAR(spe_dateNaissance) PERSISTED,
-        blocking_nom2 AS LEFT(spe_nom_normalized,2) PERSISTED,
-        blocking_pre2 AS LEFT(spe_prenom_normalized,2) PERSISTED,
-        PRIMARY KEY (run_id, id_ligne_declaration)
+    CREATE TABLE stg.stg_new_decl_spe (
+        run_id uniqueidentifier NOT NULL,
+        id_ligne_declaration bigint NOT NULL,
+        spe_nom_normalized nvarchar(200) NULL,
+        spe_prenom_normalized nvarchar(200) NULL,
+        spe_dateNaissance date NULL,
+        spe_communeNaissance nvarchar(200) NULL,
+        spe_pseudoSiret nvarchar(50) NULL,
+        employment_type nvarchar(50) NULL,
+        date_debut_prestation date NULL,
+        source_system nvarchar(50) NULL,
+        source nvarchar(50) NULL,
+        rnvp_score bit NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_stg_new_decl_spe_created_at DEFAULT SYSUTCDATETIME(),
+        blocking_year AS (YEAR(spe_dateNaissance)) PERSISTED,
+        blocking_nom2 AS (LEFT(spe_nom_normalized,2)) PERSISTED,
+        blocking_pre2 AS (LEFT(spe_prenom_normalized,2)) PERSISTED,
+        CONSTRAINT PK_stg_new_decl_spe PRIMARY KEY (run_id, id_ligne_declaration)
     );
 END;
-GO
 
-IF OBJECT_ID('stg.stg_new_decl_pe') IS NULL
+IF OBJECT_ID('stg.stg_new_decl_pe','U') IS NULL
 BEGIN
-    CREATE TABLE stg.stg_new_decl_pe
-    (
-        run_id                 UNIQUEIDENTIFIER NOT NULL,
-        id_ligne_declaration   BIGINT           NOT NULL,
-        pseudo_siret           NVARCHAR(20)     NULL,
-        pe_masterid            BIGINT           NULL,
-        created_at             DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
-        PRIMARY KEY (run_id, id_ligne_declaration)
+    CREATE TABLE stg.stg_new_decl_pe (
+        run_id uniqueidentifier NOT NULL,
+        id_ligne_declaration bigint NOT NULL,
+        pe_pseudoSiret nvarchar(50) NULL,
+        pe_nom_normalized nvarchar(200) NULL,
+        pe_commune nvarchar(200) NULL,
+        source_system nvarchar(50) NULL,
+        source nvarchar(50) NULL,
+        rnvp_score bit NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_stg_new_decl_pe_created_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_stg_new_decl_pe PRIMARY KEY (run_id, id_ligne_declaration)
     );
 END;
-GO
 
-IF OBJECT_ID('stg.stg_spe_nonmatched') IS NULL
+IF OBJECT_ID('stg.stg_spe_nonmatched','U') IS NULL
 BEGIN
-    CREATE TABLE stg.stg_spe_nonmatched
-    (
-        run_id                     UNIQUEIDENTIFIER NOT NULL,
-        id_ligne_declaration       BIGINT           NOT NULL,
-        spe_nom_normalized         NVARCHAR(255)    NULL,
-        spe_prenom_normalized      NVARCHAR(255)    NULL,
-        spe_dateNaissance          DATE             NULL,
-        spe_communeNaissance       NVARCHAR(255)    NULL,
-        created_at                 DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
-        blocking_year AS YEAR(spe_dateNaissance) PERSISTED,
-        blocking_nom2 AS LEFT(spe_nom_normalized,2) PERSISTED,
-        blocking_pre2 AS LEFT(spe_prenom_normalized,2) PERSISTED,
-        PRIMARY KEY (run_id, id_ligne_declaration)
+    CREATE TABLE stg.stg_spe_nonmatched (
+        run_id uniqueidentifier NOT NULL,
+        id_ligne_declaration bigint NOT NULL,
+        spe_nom_normalized nvarchar(200) NULL,
+        spe_prenom_normalized nvarchar(200) NULL,
+        spe_dateNaissance date NULL,
+        spe_communeNaissance nvarchar(200) NULL,
+        employment_type nvarchar(50) NULL,
+        date_debut_prestation date NULL,
+        source_system nvarchar(50) NULL,
+        source nvarchar(50) NULL,
+        rnvp_score bit NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_stg_spe_nonmatched_created_at DEFAULT SYSUTCDATETIME(),
+        blocking_year AS (YEAR(spe_dateNaissance)) PERSISTED,
+        blocking_nom2 AS (LEFT(spe_nom_normalized,2)) PERSISTED,
+        blocking_pre2 AS (LEFT(spe_prenom_normalized,2)) PERSISTED,
+        CONSTRAINT PK_stg_spe_nonmatched PRIMARY KEY (run_id, id_ligne_declaration)
     );
 END;
-GO
 
-IF OBJECT_ID('stg.spe_nodes') IS NULL
+IF OBJECT_ID('stg.spe_nodes','U') IS NULL
 BEGIN
-    CREATE TABLE stg.spe_nodes
-    (
-        run_id               UNIQUEIDENTIFIER NOT NULL,
-        node_id              BIGINT           NOT NULL,
-        id_ligne_declaration BIGINT           NOT NULL,
-        spe_nom_normalized   NVARCHAR(255)    NULL,
-        spe_prenom_normalized NVARCHAR(255)   NULL,
-        spe_dateNaissance    DATE             NULL,
-        spe_communeNaissance NVARCHAR(255)    NULL,
-        spe_masterid         BIGINT           NULL,
-        created_at           DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
-        blocking_year AS YEAR(spe_dateNaissance) PERSISTED,
-        blocking_nom2 AS LEFT(spe_nom_normalized,2) PERSISTED,
-        blocking_pre2 AS LEFT(spe_prenom_normalized,2) PERSISTED,
-        PRIMARY KEY (run_id, node_id)
+    CREATE TABLE stg.spe_nodes (
+        run_id uniqueidentifier NOT NULL,
+        node_id bigint NOT NULL,
+        spe_nom_normalized nvarchar(200) NULL,
+        spe_prenom_normalized nvarchar(200) NULL,
+        spe_dateNaissance date NULL,
+        spe_communeNaissance nvarchar(200) NULL,
+        employment_type nvarchar(50) NULL,
+        date_debut_prestation date NULL,
+        source_system nvarchar(50) NULL,
+        source nvarchar(50) NULL,
+        rnvp_score bit NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_spe_nodes_created_at DEFAULT SYSUTCDATETIME(),
+        blocking_year AS (YEAR(spe_dateNaissance)) PERSISTED,
+        blocking_nom2 AS (LEFT(spe_nom_normalized,2)) PERSISTED,
+        blocking_pre2 AS (LEFT(spe_prenom_normalized,2)) PERSISTED,
+        CONSTRAINT PK_spe_nodes PRIMARY KEY (run_id, node_id)
     );
 END;
-GO
 
-IF OBJECT_ID('stg.spe_edges') IS NULL
+IF OBJECT_ID('stg.spe_edges','U') IS NULL
 BEGIN
-    CREATE TABLE stg.spe_edges
-    (
-        run_id        UNIQUEIDENTIFIER NOT NULL,
-        node_a        BIGINT           NOT NULL,
-        node_b        BIGINT           NOT NULL,
-        score_total   FLOAT            NOT NULL,
-        score_nom     FLOAT            NULL,
-        score_prenom  FLOAT            NULL,
-        score_dob     FLOAT            NULL,
-        score_commune FLOAT            NULL,
-        created_at    DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
-        PRIMARY KEY (run_id, node_a, node_b)
+    CREATE TABLE stg.spe_edges (
+        run_id uniqueidentifier NOT NULL,
+        node_a bigint NOT NULL,
+        node_b bigint NOT NULL,
+        score_total float NULL,
+        score_nom float NULL,
+        score_prenom float NULL,
+        score_dob float NULL,
+        score_commune float NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_spe_edges_created_at DEFAULT SYSUTCDATETIME()
     );
 END;
-GO
 
-IF OBJECT_ID('stg.spe_components') IS NULL
+IF OBJECT_ID('stg.spe_components','U') IS NULL
 BEGIN
-    CREATE TABLE stg.spe_components
-    (
-        run_id     UNIQUEIDENTIFIER NOT NULL,
-        node_id    BIGINT           NOT NULL,
-        component_id BIGINT         NOT NULL,
-        updated_at DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
-        PRIMARY KEY (run_id, node_id)
+    CREATE TABLE stg.spe_components (
+        run_id uniqueidentifier NOT NULL,
+        node_id bigint NOT NULL,
+        component_id bigint NOT NULL,
+        updated_at datetime2(3) NOT NULL CONSTRAINT DF_spe_components_updated_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_spe_components PRIMARY KEY (run_id, node_id)
     );
 END;
-GO
 
-PRINT 'Creating DQ tables...';
-GO
-
-IF OBJECT_ID('dq.spe_match_candidates') IS NULL
+-- dq
+IF OBJECT_ID('dq.spe_match_candidates','U') IS NULL
 BEGIN
-    CREATE TABLE dq.spe_match_candidates
-    (
-        run_id                 UNIQUEIDENTIFIER NOT NULL,
-        id_ligne_declaration   BIGINT           NOT NULL,
-        candidate_spe_masterid BIGINT           NOT NULL,
-        score_total            FLOAT            NOT NULL,
-        score_nom              FLOAT            NULL,
-        score_prenom           FLOAT            NULL,
-        score_dob              FLOAT            NULL,
-        score_commune          FLOAT            NULL,
-        created_at             DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
-        PRIMARY KEY (run_id, id_ligne_declaration, candidate_spe_masterid)
+    CREATE TABLE dq.spe_match_candidates (
+        run_id uniqueidentifier NOT NULL,
+        id_ligne_declaration bigint NOT NULL,
+        candidate_spe_masterid bigint NOT NULL,
+        score_total float NULL,
+        score_nom float NULL,
+        score_prenom float NULL,
+        score_dob float NULL,
+        score_commune float NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_spe_match_candidates_created_at DEFAULT SYSUTCDATETIME()
     );
 END;
-GO
 
-IF OBJECT_ID('dq.spe_match_candidates_intrarun') IS NULL
+IF OBJECT_ID('dq.spe_match_candidates_intrarun','U') IS NULL
 BEGIN
-    CREATE TABLE dq.spe_match_candidates_intrarun
-    (
-        run_id                 UNIQUEIDENTIFIER NOT NULL,
-        node_id                BIGINT           NOT NULL,
-        candidate_spe_masterid BIGINT           NOT NULL,
-        score_total            FLOAT            NOT NULL,
-        created_at             DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
-        PRIMARY KEY (run_id, node_id, candidate_spe_masterid)
+    CREATE TABLE dq.spe_match_candidates_intrarun (
+        run_id uniqueidentifier NOT NULL,
+        node_id bigint NOT NULL,
+        candidate_spe_masterid bigint NOT NULL,
+        score_total float NULL,
+        score_nom float NULL,
+        score_prenom float NULL,
+        score_dob float NULL,
+        score_commune float NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_spe_match_candidates_intrarun_created_at DEFAULT SYSUTCDATETIME()
     );
 END;
-GO
 
-IF OBJECT_ID('dq.spe_stewardship_decision') IS NULL
+IF OBJECT_ID('dq.spe_stewardship_decision','U') IS NULL
 BEGIN
-    CREATE TABLE dq.spe_stewardship_decision
-    (
-        decision_id          BIGINT          IDENTITY(1,1) PRIMARY KEY,
-        run_id               UNIQUEIDENTIFIER NULL,
-        id_ligne_declaration BIGINT           NOT NULL,
-        decision_status      VARCHAR(30)      NOT NULL,
-        chosen_spe_masterid  BIGINT           NULL,
-        decided_by           NVARCHAR(255)    NULL,
-        decided_at           DATETIME2(3)     NULL DEFAULT SYSUTCDATETIME(),
-        comment              NVARCHAR(2000)   NULL
+    CREATE TABLE dq.spe_stewardship_decision (
+        decision_id bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        run_id uniqueidentifier NULL,
+        id_ligne_declaration bigint NOT NULL,
+        decision_status varchar(20) NOT NULL,
+        chosen_spe_masterid bigint NULL,
+        decided_by sysname NULL,
+        decided_at datetime2(3) NULL,
+        comment nvarchar(1000) NULL
     );
 END;
-GO
 
-PRINT 'Creating MDM SCD2 tables...';
-GO
-
-IF OBJECT_ID('mdm.Silver_master_spe') IS NULL
+-- mdm
+IF OBJECT_ID('mdm.declaration_ref_mapping','U') IS NULL
 BEGIN
-    CREATE TABLE mdm.Silver_master_spe
-    (
-        spe_masterid     BIGINT        NOT NULL,
-        valid_from       DATETIME2(3)  NOT NULL,
-        valid_to         DATETIME2(3)  NULL,
-        is_current       BIT           NOT NULL DEFAULT 1,
-        source_system    NVARCHAR(50)  NULL,
-        spe_nom          NVARCHAR(255) NULL,
-        spe_prenom       NVARCHAR(255) NULL,
-        spe_dateNaissance DATE         NULL,
-        spe_communeNaissance NVARCHAR(255) NULL,
-        rnvp_ok          BIT           NULL,
-        row_hash         VARBINARY(32) NOT NULL,
-        created_at       DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
-        updated_at       DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
-        PRIMARY KEY (spe_masterid, valid_from)
+    CREATE TABLE mdm.declaration_ref_mapping (
+        id_ligne_declaration bigint NOT NULL PRIMARY KEY,
+        spe_masterid bigint NULL,
+        pe_masterid bigint NULL,
+        spe_match_status varchar(50) NULL,
+        pe_match_status varchar(50) NULL,
+        best_candidate_masterid bigint NULL,
+        best_candidate_score float NULL,
+        run_id uniqueidentifier NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_declaration_ref_mapping_created_at DEFAULT SYSUTCDATETIME(),
+        updated_at datetime2(3) NOT NULL CONSTRAINT DF_declaration_ref_mapping_updated_at DEFAULT SYSUTCDATETIME()
     );
 END;
-GO
 
-PRINT 'Creating Silver enriched tables...';
-GO
-
-IF OBJECT_ID('silver.Silver_decl_spe') IS NULL
+IF OBJECT_ID('mdm.spe_enriched_format','U') IS NULL
 BEGIN
-    CREATE TABLE silver.Silver_decl_spe
-    (
-        id_ligne_declaration   BIGINT        NOT NULL PRIMARY KEY,
-        spe_nom                NVARCHAR(255) NULL,
-        spe_nom_normalized     NVARCHAR(255) NULL,
-        spe_prenom             NVARCHAR(255) NULL,
-        spe_prenom_normalized  NVARCHAR(255) NULL,
-        spe_dateNaissance      DATE          NULL,
-        spe_communeNaissance   NVARCHAR(255) NULL,
-        created_at             DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
-        valid_to               DATETIME2(3)  NULL
+    CREATE TABLE mdm.spe_enriched_format (
+        spe_masterid bigint NOT NULL,
+        spe_nom_normalized nvarchar(200) NULL,
+        spe_prenom_normalized nvarchar(200) NULL,
+        spe_dateNaissance date NULL,
+        spe_communeNaissance nvarchar(200) NULL,
+        source_system nvarchar(50) NULL,
+        source nvarchar(50) NULL,
+        rnvp_score bit NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_spe_enriched_format_created_at DEFAULT SYSUTCDATETIME(),
+        blocking_year AS (YEAR(spe_dateNaissance)) PERSISTED,
+        blocking_nom2 AS (LEFT(spe_nom_normalized,2)) PERSISTED,
+        blocking_pre2 AS (LEFT(spe_prenom_normalized,2)) PERSISTED,
+        CONSTRAINT PK_spe_enriched_format PRIMARY KEY (spe_masterid, spe_nom_normalized, spe_prenom_normalized, spe_dateNaissance, spe_communeNaissance)
     );
 END;
-GO
 
-IF OBJECT_ID('silver.Silver_decl_pe') IS NULL
+IF OBJECT_ID('mdm.pe_enriched_format','U') IS NULL
 BEGIN
-    CREATE TABLE silver.Silver_decl_pe
-    (
-        id_ligne_declaration BIGINT        NOT NULL PRIMARY KEY,
-        pseudo_siret         NVARCHAR(20)  NULL,
-        created_at           DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
-        valid_to             DATETIME2(3)  NULL
+    CREATE TABLE mdm.pe_enriched_format (
+        pe_masterid bigint NOT NULL,
+        pe_pseudoSiret nvarchar(50) NULL,
+        pe_nom_normalized nvarchar(200) NULL,
+        pe_commune nvarchar(200) NULL,
+        source_system nvarchar(50) NULL,
+        source nvarchar(50) NULL,
+        rnvp_score bit NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_pe_enriched_format_created_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_pe_enriched_format PRIMARY KEY (pe_masterid, pe_pseudoSiret)
     );
 END;
-GO
 
-IF OBJECT_ID('silver.Silver_spe_enriched') IS NULL
+IF OBJECT_ID('mdm.spe_master','U') IS NULL
 BEGIN
-    CREATE TABLE silver.Silver_spe_enriched
-    (
-        spe_masterid         BIGINT         NOT NULL,
-        spe_nom_normalized   NVARCHAR(255)  NULL,
-        spe_prenom_normalized NVARCHAR(255) NULL,
-        spe_dateNaissance    DATE           NULL,
-        spe_communeNaissance NVARCHAR(255)  NULL,
-        rnvp_ok              BIT            NULL,
-        created_at           DATETIME2(3)   NOT NULL DEFAULT SYSUTCDATETIME(),
-        valid_to             DATETIME2(3)   NULL,
-        blocking_year AS YEAR(spe_dateNaissance) PERSISTED,
-        blocking_nom2 AS LEFT(spe_nom_normalized,2) PERSISTED,
-        blocking_pre2 AS LEFT(spe_prenom_normalized,2) PERSISTED
+    CREATE TABLE mdm.spe_master (
+        spe_masterid bigint NOT NULL,
+        spe_nom_normalized nvarchar(200) NULL,
+        spe_prenom_normalized nvarchar(200) NULL,
+        spe_dateNaissance date NULL,
+        spe_communeNaissance nvarchar(200) NULL,
+        source_system nvarchar(50) NULL,
+        source nvarchar(50) NULL,
+        rnvp_score bit NULL,
+        valid_from datetime2(3) NOT NULL,
+        valid_to datetime2(3) NULL,
+        is_current bit NOT NULL,
+        row_hash varbinary(32) NOT NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_spe_master_created_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_spe_master PRIMARY KEY (spe_masterid, valid_from)
     );
 END;
-GO
 
-IF OBJECT_ID('silver.Silver_pe_enriched') IS NULL
+IF OBJECT_ID('mdm.pe_master','U') IS NULL
 BEGIN
-    CREATE TABLE silver.Silver_pe_enriched
-    (
-        pe_masterid   BIGINT        NOT NULL,
-        pseudo_siret  NVARCHAR(20)  NULL,
-        rnvp_ok       BIT           NULL,
-        created_at    DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
-        valid_to      DATETIME2(3)  NULL
+    CREATE TABLE mdm.pe_master (
+        pe_masterid bigint NOT NULL,
+        pe_pseudoSiret nvarchar(50) NULL,
+        pe_nom_normalized nvarchar(200) NULL,
+        pe_commune nvarchar(200) NULL,
+        source_system nvarchar(50) NULL,
+        source nvarchar(50) NULL,
+        rnvp_score bit NULL,
+        valid_from datetime2(3) NOT NULL,
+        valid_to datetime2(3) NULL,
+        is_current bit NOT NULL,
+        row_hash varbinary(32) NOT NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_pe_master_created_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_pe_master PRIMARY KEY (pe_masterid, valid_from)
     );
 END;
-GO
 
-IF OBJECT_ID('mdm.Silver_master_pe') IS NULL
+IF OBJECT_ID('mdm.Silver_master_relation','U') IS NULL
 BEGIN
-    CREATE TABLE mdm.Silver_master_pe
-    (
-        pe_masterid    BIGINT        NOT NULL,
-        valid_from     DATETIME2(3)  NOT NULL,
-        valid_to       DATETIME2(3)  NULL,
-        is_current     BIT           NOT NULL DEFAULT 1,
-        source_system  NVARCHAR(50)  NULL,
-        pseudo_siret   NVARCHAR(20)  NULL,
-        rnvp_ok        BIT           NULL,
-        row_hash       VARBINARY(32) NOT NULL,
-        created_at     DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
-        updated_at     DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
-        PRIMARY KEY (pe_masterid, valid_from)
-    );
-END;
-GO
-
-IF OBJECT_ID('mdm.Silver_master_relation') IS NULL
-BEGIN
-    CREATE TABLE mdm.Silver_master_relation
-    (
-        spe_masterid        BIGINT       NOT NULL,
-        pe_masterid         BIGINT       NOT NULL,
-        employment_type     NVARCHAR(50) NULL,
-        valid_from          DATETIME2(3) NOT NULL,
-        valid_to            DATETIME2(3) NULL,
-        is_current          BIT          NOT NULL DEFAULT 1,
-        date_debut_relation DATE         NULL,
-        date_fin_relation   DATE         NULL,
-        row_hash            VARBINARY(32) NOT NULL,
-        created_at          DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
-        updated_at          DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
-        PRIMARY KEY (spe_masterid, pe_masterid, valid_from)
-    );
-END;
-GO
-
-PRINT 'Creating mapping table (Silver layer adapter)...';
-GO
-
-IF OBJECT_ID('silver.Silver_declaration_ref_mapping') IS NULL
-BEGIN
-    CREATE TABLE silver.Silver_declaration_ref_mapping
-    (
-        id_ligne_declaration    BIGINT        NOT NULL PRIMARY KEY,
-        spe_masterid            BIGINT        NULL,
-        pe_masterid             BIGINT        NULL,
-        spe_match_status        VARCHAR(40)   NULL,
-        pe_match_status         VARCHAR(40)   NULL,
-        best_candidate_masterid BIGINT        NULL,
-        best_score              FLOAT         NULL,
-        created_at              DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
-        updated_at              DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
-        valid_to                DATETIME2(3)  NULL
+    CREATE TABLE mdm.Silver_master_relation (
+        spe_masterid bigint NOT NULL,
+        pe_masterid bigint NOT NULL,
+        employment_type nvarchar(50) NULL,
+        date_debut_relation date NULL,
+        date_fin_relation date NULL,
+        valid_from datetime2(3) NOT NULL,
+        valid_to datetime2(3) NULL,
+        is_current bit NOT NULL,
+        row_hash varbinary(32) NOT NULL,
+        created_at datetime2(3) NOT NULL CONSTRAINT DF_Silver_master_relation_created_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_Silver_master_relation PRIMARY KEY (spe_masterid, pe_masterid, valid_from)
     );
 END;
 GO

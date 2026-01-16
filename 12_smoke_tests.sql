@@ -1,97 +1,53 @@
 SET NOCOUNT ON;
+SET XACT_ABORT ON;
 GO
 
-PRINT 'Smoke test dataset setup';
-GO
+DECLARE @run_id uniqueidentifier = NEWID();
 
--- Clean tables (minimal scope for repeatability)
-DELETE FROM dq.spe_match_candidates;
-DELETE FROM dq.spe_match_candidates_intrarun;
-DELETE FROM dq.spe_stewardship_decision;
-DELETE FROM stg.spe_edges;
-DELETE FROM stg.spe_components;
-DELETE FROM stg.spe_nodes;
-DELETE FROM stg.stg_spe_nonmatched;
-DELETE FROM stg.stg_new_decl_spe;
-DELETE FROM stg.stg_new_decl_pe;
-DELETE FROM silver.Silver_declaration_ref_mapping;
-DELETE FROM silver.Silver_spe_enriched;
-DELETE FROM silver.Silver_pe_enriched;
-DELETE FROM silver.Silver_decl_spe;
-DELETE FROM silver.Silver_decl_pe;
-DELETE FROM mdm.Silver_master_relation;
-DELETE FROM mdm.Silver_master_spe;
-DELETE FROM mdm.Silver_master_pe;
-DELETE FROM ctl.process_metrics;
-DELETE FROM ctl.process_error;
-DELETE FROM ctl.process_run;
-DELETE FROM ctl.merge_log;
-GO
+-- Clean run-specific data
+DELETE FROM stg.stg_spe_nonmatched WHERE run_id = @run_id;
+DELETE FROM stg.spe_nodes WHERE run_id = @run_id;
+DELETE FROM stg.spe_edges WHERE run_id = @run_id;
+DELETE FROM stg.spe_components WHERE run_id = @run_id;
+DELETE FROM dq.spe_match_candidates_intrarun WHERE run_id = @run_id;
+DELETE FROM mdm.declaration_ref_mapping WHERE id_ligne_declaration IN (1001,1002,2001,2002,3001,3002,3003,3004,3005);
 
-PRINT 'Insert SPE declarations (deterministic cluster, dual anchors, proba-only component)';
-GO
--- Deterministic cluster A (2 rows) -> anchor M1
-INSERT INTO silver.Silver_decl_spe(id_ligne_declaration, spe_nom, spe_nom_normalized, spe_prenom, spe_prenom_normalized, spe_dateNaissance, spe_communeNaissance, created_at)
+-- Dataset: deterministic cluster (1001,1002)
+INSERT INTO stg.stg_spe_nonmatched (
+    run_id, id_ligne_declaration, spe_nom_normalized, spe_prenom_normalized, spe_dateNaissance,
+    spe_communeNaissance, employment_type, date_debut_prestation, source_system, source, rnvp_score
+)
 VALUES
-(101, N'DUPONT', N'DUPONT', N'ALICE', N'ALICE', '1990-01-01', N'PARIS', SYSUTCDATETIME()),
-(102, N'DUPONT', N'DUPONT', N'ALICE', N'ALICE', '1990-01-01', N'PARIS', SYSUTCDATETIME());
+(@run_id, 1001, 'DURAND', 'ALICE', '1980-01-01', 'LYON', 'EMP', '2024-01-01', 'CRM', 'PAJEMPLOI', 1),
+(@run_id, 1002, 'DURAND', 'ALICE', '1980-01-01', 'LYON', 'EMP', '2024-01-02', 'CRM', 'PAJEMPLOI', 1),
+-- Proba-only component (2001,2002)
+(@run_id, 2001, 'MARTIN', 'BRUNO', '1975-02-02', 'PARIS', 'EMP', '2024-02-01', 'UCN', 'CESU', 0),
+(@run_id, 2002, 'MARTIN', 'BRUNO', '1975-02-02', 'PAR1S', 'EMP', '2024-02-02', 'UCN', 'CESU', 0),
+-- Component with 2 anchors + proba node (3001-3005)
+(@run_id, 3001, 'ROBERT', 'CLAIRE', '1990-03-03', 'NANTES', 'EMP', '2024-03-01', 'CRM', 'PAJEMPLOI', 1),
+(@run_id, 3002, 'ROBERT', 'CLAIRE', '1990-03-03', 'NANTES', 'EMP', '2024-03-02', 'CRM', 'PAJEMPLOI', 1),
+(@run_id, 3003, 'ROBERT', 'CLARA', '1990-03-03', 'NANTES', 'EMP', '2024-03-03', 'CRM', 'PAJEMPLOI', 1),
+(@run_id, 3004, 'ROBERT', 'CLARA', '1990-03-03', 'NANTES', 'EMP', '2024-03-04', 'CRM', 'PAJEMPLOI', 1),
+(@run_id, 3005, 'ROBERT', 'CLARE', '1990-03-03', 'NANTES', 'EMP', '2024-03-05', 'CRM', 'PAJEMPLOI', 1);
 
--- Deterministic cluster B (2 rows) -> anchor M2
-INSERT INTO silver.Silver_decl_spe(id_ligne_declaration, spe_nom, spe_nom_normalized, spe_prenom, spe_prenom_normalized, spe_dateNaissance, spe_communeNaissance, created_at)
-VALUES
-(103, N'DUPONX', N'DUPONX', N'ALAIN', N'ALAIN', '1990-01-01', N'PARIS', SYSUTCDATETIME()),
-(104, N'DUPONX', N'DUPONX', N'ALAIN', N'ALAIN', '1990-01-01', N'PARIS', SYSUTCDATETIME());
+EXEC silver.sp_mm_05_build_intrarun_graph @run_id = @run_id, @threshold = 0.8;
+EXEC silver.sp_mm_06_compute_connected_components @run_id = @run_id, @max_iter = 1000;
+EXEC silver.sp_mm_07_new_spe_dedup_deterministic @run_id = @run_id, @status_created = 'Created';
+EXEC silver.sp_mm_08_new_spe_dedup_probabilistic @run_id = @run_id;
 
--- Node linked to both anchors (Proba_Several expected)
-INSERT INTO silver.Silver_decl_spe(id_ligne_declaration, spe_nom, spe_nom_normalized, spe_prenom, spe_prenom_normalized, spe_dateNaissance, spe_communeNaissance, created_at)
-VALUES
-(105, N'DUPONO', N'DUPONO', N'ALBERT', N'ALBERT', '1990-01-01', N'PARIS', SYSUTCDATETIME());
+-- Assertions (manual checks)
+SELECT 'components' AS check_name, component_id, COUNT(*) AS node_count
+FROM stg.spe_components
+WHERE run_id = @run_id
+GROUP BY component_id;
 
--- Proba-only component (no deterministic cluster)
-INSERT INTO silver.Silver_decl_spe(id_ligne_declaration, spe_nom, spe_nom_normalized, spe_prenom, spe_prenom_normalized, spe_dateNaissance, spe_communeNaissance, created_at)
-VALUES
-(201, N'MARTIN', N'MARTIN', N'BOB', N'BOB', '1991-05-05', N'LYON', SYSUTCDATETIME()),
-(202, N'MARTYN', N'MARTYN', N'BOB', N'BOB', '1991-05-05', N'LYON', SYSUTCDATETIME());
-GO
+SELECT 'mapping' AS check_name, id_ligne_declaration, spe_masterid, spe_match_status
+FROM mdm.declaration_ref_mapping
+WHERE id_ligne_declaration IN (1001,1002,2001,2002,3001,3002,3003,3004,3005)
+ORDER BY id_ligne_declaration;
 
-PRINT 'Insert PE declarations';
-GO
-INSERT INTO silver.Silver_decl_pe(id_ligne_declaration, pseudo_siret, created_at)
-VALUES
-(101, 'SIRET001', SYSUTCDATETIME()),
-(102, 'SIRET002', SYSUTCDATETIME()),
-(103, 'SIRET003', SYSUTCDATETIME()),
-(104, 'SIRET004', SYSUTCDATETIME()),
-(105, 'SIRET005', SYSUTCDATETIME()),
-(201, 'SIRET006', SYSUTCDATETIME()),
-(202, 'SIRET007', SYSUTCDATETIME());
-GO
-
-DECLARE @run_id UNIQUEIDENTIFIER;
-EXEC ctl.sp_mm_run @run_id = @run_id OUTPUT, @threshold = 0.8;
-PRINT CONCAT('Run executed: ', CONVERT(VARCHAR(36), @run_id));
-GO
-
-PRINT 'Assertions / inspection';
-GO
--- Deterministic cluster A -> status Created/Matched with masterid
-SELECT id_ligne_declaration, spe_masterid, spe_match_status
-FROM silver.Silver_declaration_ref_mapping
-WHERE id_ligne_declaration IN (101,102);
-
--- Component with two anchors -> node 105 should be proba several
-SELECT id_ligne_declaration, spe_masterid, spe_match_status, best_candidate_masterid, best_score
-FROM silver.Silver_declaration_ref_mapping
-WHERE id_ligne_declaration = 105;
-
--- Proba-only component -> pivot chosen, other node to stewardship
-SELECT id_ligne_declaration, spe_masterid, spe_match_status
-FROM silver.Silver_declaration_ref_mapping
-WHERE id_ligne_declaration IN (201,202);
-
--- Connected components check
-SELECT TOP 10 * FROM stg.spe_components WHERE run_id = @run_id ORDER BY component_id, node_id;
-
--- Intra-run candidates
-SELECT * FROM dq.spe_match_candidates_intrarun WHERE run_id = @run_id ORDER BY node_id, candidate_spe_masterid;
+SELECT 'candidates' AS check_name, node_id, candidate_spe_masterid, score_total
+FROM dq.spe_match_candidates_intrarun
+WHERE run_id = @run_id
+ORDER BY node_id, candidate_spe_masterid;
 GO

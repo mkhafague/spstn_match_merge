@@ -1,54 +1,48 @@
-## Match & Merge ELT – SQL Server 2022 (v2)
+# Pack SQL Match & Merge v2 (SQL Server 2022 Standard)
 
-### Architecture
-- `ctl` : orchestration, audit, métriques, erreurs.
-- `stg` : staging par `run_id`, graphe intra-run pour la déduplication SPE.
-- `dq`  : scoring, candidats probabilistes, décisions de stewardship.
-- `mdm` : référentiels SCD2 (SPE, PE, relations).
+## Objectif
+Ce pack SQL implémente un processus ELT **Match & Merge** (SPE/PE) conforme aux contraintes SQL Server 2022 Standard et aux règles métier décrites dans la spécification (match déterministe + probabiliste, déduplication intra‑run par graphe, survivorship SCD2, stewardship).
 
-### Ordre d’exécution
-1. `ctl.sp_mm_run` (orchestration et verrouillage applicatif)
-2. `silver.sp_mm_01_stage_new_declarations`
-3. `silver.sp_mm_02_match_pe`
-4. `silver.sp_mm_03_match_spe_deterministic`
-5. `silver.sp_mm_04_match_spe_probabilistic_candidates`
-6. Déduplication SPE intra-run :
-   - `silver.sp_mm_05_build_intrarun_graph`
-   - `silver.sp_mm_06_compute_connected_components`
-   - `silver.sp_mm_07_new_spe_dedup_deterministic`
-   - `silver.sp_mm_08_new_spe_dedup_probabilistic`
-7. `mdm.sp_mm_09_merge_spe`
-8. `mdm.sp_mm_10_merge_pe`
-9. `mdm.sp_mm_11_merge_relation`
-10. `dq.sp_apply_stewardship_decisions` (asynchrone)
+## Architecture des schémas
+- **ctl** : pilotage, audit, métriques, verrous.
+- **stg** : staging par `run_id`, graphes intra‑run (nodes/edges/components).
+- **dq** : scoring, candidats proba, décisions de stewardship.
+- **mdm** : référentiels master (SCD2) et mapping déclaration ↔ master.
+- **silver** : vues *adapter layer* (`silver.v_*_canon`) utilisées par les procédures.
 
-### Paramètres principaux
-- `@threshold` (défaut `0.8`) pour les scores probabilistes.
-- `@max_iter` (défaut `1000`) pour la propagation de labels des composantes connexes.
-- `@status_created` (défaut `'Created'`) statut appliqué lors de la création de nouveaux `masterid`.
+## Ordre d’exécution (orchestration)
+1. `ctl.sp_mm_run` (proc runner) appelle dans l’ordre :
+   1. `silver.sp_mm_01_stage_new_declarations`
+   2. `silver.sp_mm_02_match_pe`
+   3. `silver.sp_mm_03_match_spe_deterministic`
+   4. `silver.sp_mm_04_match_spe_probabilistic_candidates`
+   5. `silver.sp_mm_05_build_intrarun_graph`
+   6. `silver.sp_mm_06_compute_connected_components`
+   7. `silver.sp_mm_07_new_spe_dedup_deterministic`
+   8. `silver.sp_mm_08_new_spe_dedup_probabilistic`
+   9. `mdm.sp_mm_09_merge_spe`
+   10. `mdm.sp_mm_10_merge_pe`
+   11. `mdm.sp_mm_11_merge_relation`
 
-### Stewardship
-- Consulter `dq.spe_match_candidates` (référentiel) et `dq.spe_match_candidates_intrarun` (intra-run).
-- Enregistrer la décision dans `dq.spe_stewardship_decision`.
-- Appliquer via `dq.sp_apply_stewardship_decisions` (met à jour le mapping et insère les formats enrichis).
+## Paramètres importants
+- `@threshold` (par défaut 0.8) : seuil de similarité proba.
+- `@max_iter` (par défaut 1000) : limite d’itérations pour les composantes connexes.
+- `@status_created` (par défaut `'Created'`) : statut initial des nouveaux master.
 
-### Performance & robustesse
-- Colonnes calculées persistées pour les clés de blocage probabilistes : année de naissance, premières lettres nom/prénom.
-- Index dédiés `IX_*_blocking` sur staging et enrichi.
-- Traitement set-based, aucune utilisation de curseur.
-- Transactions courtes par étape, verrouillage applicatif via `sp_getapplock` (`MM_RUN`).
-- Journalisation : `ctl.process_run`, `ctl.process_metrics`, `ctl.process_error`.
+## Stewardship (DQ)
+- Les candidats proba sont stockés dans :
+  - `dq.spe_match_candidates` (match proba vs référentiel)
+  - `dq.spe_match_candidates_intrarun` (proba intra‑run via graphe)
+- Les décisions humaines se déposent dans `dq.spe_stewardship_decision`.
+- Application des décisions : `dq.sp_apply_stewardship_decisions`.
 
-### Limites connues
-- Levenshtein T-SQL coûteux CPU : privilégier blocage strict et seuil adapté.
-- Évolution possible : implémentation CLR pour Levenshtein (non incluse ici).
+## Tuning performance
+- Index de blocage proba sur colonnes calculées persistées (année, 2 premières lettres nom/prénom).
+- Traitements set‑based.
+- Transactions courtes par étape.
 
-### Adapter layer (vues canon)
-Les procédures ne dépendent que des vues canon :
-- `silver.v_decl_spe_canon`
-- `silver.v_decl_pe_canon`
-- `silver.v_spe_enriched_canon`
-- `silver.v_pe_enriched_canon`
-- `silver.v_mapping_canon`
+## Limites connues
+- Levenshtein en T‑SQL est un compromis performance/maintenabilité. Une implémentation CLR pourrait améliorer la vitesse (non fournie).
 
-Adapter les mappings de colonnes Silver dans ces vues (TODO dans `04_create_views_canon.sql`).
+## Adapter layer (views canon)
+Les procédures lisent **exclusivement** les vues `silver.v_*_canon`. Les mappings de colonnes Silver sont à ajuster (TODO dans `04_create_views_canon.sql`).
